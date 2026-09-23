@@ -592,35 +592,42 @@ async def services_main(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("cat_"))
-async def show_category(callback: CallbackQuery):
-    """Показать услуги в категории"""
-    cat_map = {
-        "cat_makeup": ("Макияж", ["makeup_day", "makeup_evening", "makeup_graphic", "makeup_bride", "makeup_bride_trial"]),
-        "cat_styling": ("Укладки и причёски", ["styling_short", "styling_mid", "styling_long", "styling_collected", "styling_bride"]),
-        "cat_brows": ("Брови и ресницы", ["lamination_brows", "lamination_lashes", "brows_correction", "brows_tint"]),
-        "cat_shugaring": ("Шугаринг", ["shugaring_face", "shugaring_armpits", "shugaring_bikini", "shugaring_shins", "shugaring_thighs", "shugaring_legs_full"]),
-        "cat_kids": ("Детям", ["kids_styling"]),
-        "cat_packages": ("Комплексные пакеты", ["full_bridal", "express"]),
-        "cat_extra": ("Дополнительные услуги", ["extra_home_visit", "extra_early_visit", "extra_before_6am"]),
+async def book_choose_category(callback: CallbackQuery, state: FSMContext):
+    """Выбор категории → краткий прайс + запрос имени (правило 3 нажатий)"""
+    cat = callback.data  # cat_makeup, cat_brows и т.д.
+
+    category_names = {
+        "cat_makeup": "💄 Макияж",
+        "cat_styling": "💇 Укладки и причёски",
+        "cat_brows": "👁 Брови и ресницы",
+        "cat_shugaring": "🍯 Шугаринг",
+        "cat_kids": "👶 Детям",
+        "cat_packages": "🎁 Пакеты",
+        "cat_extra": "➕ Дополнительно",
     }
-    cat_name, keys = cat_map.get(callback.data, ("Услуги", []))
+    cat_name = category_names.get(cat, "Услуга")
 
-    text = f"💄 <b>{cat_name}</b>\n\n"
-    buttons = []
-    for k in keys:
-        s = SERVICES[k]
-        text += f"• <b>{s['name']}</b> — {s['price']}\n"
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"🎀 Записаться: {s['name'][:25]}",
-                callback_data=f"book_service_{k}"
-            )
-        ])
-    text += "\nНажми кнопку, чтобы записаться:"
-    buttons.append([InlineKeyboardButton(text="⬅️ К категориям", callback_data="services")])
-    buttons.append([InlineKeyboardButton(text="🏠 В главное меню", callback_data="back_to_main")])
+    # Краткий прайс по категории
+    cat_services = {
+        "cat_makeup": ["makeup_day", "makeup_evening", "makeup_graphic", "makeup_bride", "makeup_bride_trial"],
+        "cat_styling": ["styling_short", "styling_mid", "styling_long", "styling_collected", "styling_bride"],
+        "cat_brows": ["lamination_brows", "lamination_lashes", "brows_correction", "brows_tint"],
+        "cat_shugaring": ["shugaring_face", "shugaring_armpits", "shugaring_bikini", "shugaring_shins", "shugaring_thighs", "shugaring_legs_full"],
+        "cat_kids": ["kids_styling"],
+        "cat_packages": ["full_bridal", "express"],
+        "cat_extra": ["extra_home_visit", "extra_early_visit", "extra_before_6am"],
+    }
+    keys = cat_services.get(cat, [])
+    price_lines = "\n".join(f"• {SERVICES[k]['name']} — {SERVICES[k]['price']}" for k in keys if k in SERVICES)
 
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await state.update_data(category=cat, category_name=cat_name)
+
+    await callback.message.edit_text(
+        f"<b>{cat_name}</b>\n\n"
+        f"{price_lines}\n\n"
+        f"Напиши, пожалуйста, <b>как тебя зовут</b>, чтобы Мария могла к тебе обратиться:"
+    )
+    await state.set_state(BookingFlow.entering_name)
     await callback.answer()
 
 
@@ -677,30 +684,7 @@ async def book_start(callback: CallbackQuery, state: FSMContext):
 NEEDS_TIME_CATEGORIES = {"cat_makeup", "cat_styling", "cat_packages"}
 
 
-@router.callback_query(F.data.startswith("cat_"))
-async def book_choose_category(callback: CallbackQuery, state: FSMContext):
-    """Выбор категории → сразу запрос имени (правило 3 нажатий: категория → имя → телефон)"""
-    cat = callback.data  # cat_makeup, cat_brows и т.д.
 
-    category_names = {
-        "cat_makeup": "💄 Макияж",
-        "cat_styling": "💇 Укладки и причёски",
-        "cat_brows": "👁 Брови и ресницы",
-        "cat_shugaring": "🍯 Шугаринг",
-        "cat_kids": "👶 Детям",
-        "cat_packages": "🎁 Пакеты",
-        "cat_extra": "➕ Дополнительно",
-    }
-    cat_name = category_names.get(cat, "Услуга")
-
-    await state.update_data(category=cat, category_name=cat_name)
-
-    await callback.message.edit_text(
-        f"Отлично! Категория: <b>{cat_name}</b>\n\n"
-        f"Напиши, пожалуйста, <b>как тебя зовут</b>:"
-    )
-    await state.set_state(BookingFlow.entering_name)
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("date_"), StateFilter(BookingFlow.choosing_date))
