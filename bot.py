@@ -29,6 +29,7 @@ except ImportError:
     pass
 
 import aiohttp
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
@@ -2003,9 +2004,33 @@ async def on_startup():
 # =========================
 
 @router.message(F.forward_from_chat)
+
+
+# =========================
+# HTTP health-check сервер для Render Web Service
+# =========================
+
+async def health_handler(request):
+    return web.Response(text="OK")
+
+
+async def start_health_server():
+    port = int(os.getenv("PORT", "10000"))
+    app = web.Application()
+    app.router.add_get("/", health_handler)
+    app.router.add_get("/healthz", health_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"🌐 Health server started on port {port}")
+
+
 async def main():
     await on_startup()
     logger.info("🚀 Бот запускается...")
+    if os.getenv("RENDER") == "true":
+        await start_health_server()
     await dp.start_polling(bot)
 
 
