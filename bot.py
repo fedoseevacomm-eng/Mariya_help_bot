@@ -677,60 +677,28 @@ async def book_start(callback: CallbackQuery, state: FSMContext):
 NEEDS_TIME_CATEGORIES = {"cat_makeup", "cat_styling", "cat_packages"}
 
 
-@router.callback_query(F.data.startswith("book_service_"), StateFilter(BookingFlow.choosing_service))
-async def book_choose_service(callback: CallbackQuery, state: FSMContext):
-    """Сохранение выбранной услуги, запрос даты"""
-    service_key = callback.data.replace("book_service_", "")
-    service = SERVICES.get(service_key)
+@router.callback_query(F.data.startswith("cat_"))
+async def book_choose_category(callback: CallbackQuery, state: FSMContext):
+    """Выбор категории → сразу запрос имени (правило 3 нажатий: категория → имя → телефон)"""
+    cat = callback.data  # cat_makeup, cat_brows и т.д.
 
-    if not service:
-        await callback.message.edit_text("Что-то пошло не так. Попробуй ещё раз: /start")
-        await state.clear()
-        await callback.answer()
-        return
-
-    # Определяем категорию по service_key
-    category_for_service = {
-        # Макияж
-        "makeup_day": "cat_makeup", "makeup_evening": "cat_makeup",
-        "makeup_graphic": "cat_makeup", "makeup_bride": "cat_makeup",
-        "makeup_bride_trial": "cat_makeup",
-        # Укладки
-        "styling_short": "cat_styling", "styling_mid": "cat_styling",
-        "styling_long": "cat_styling", "styling_collected": "cat_styling",
-        "styling_bride": "cat_styling",
-        # Брови
-        "lamination_brows": "cat_brows", "lamination_lashes": "cat_brows",
-        "brows_correction": "cat_brows", "brows_tint": "cat_brows",
-        # Шугаринг
-        "shugaring_face": "cat_shugaring", "shugaring_armpits": "cat_shugaring",
-        "shugaring_bikini": "cat_shugaring", "shugaring_shins": "cat_shugaring",
-        "shugaring_thighs": "cat_shugaring", "shugaring_legs_full": "cat_shugaring",
-        # Детям
-        "kids_styling": "cat_kids",
-        # Пакеты
-        "full_bridal": "cat_packages", "express": "cat_packages",
-        # Доп
-        "extra_home_visit": "cat_extra", "extra_early_visit": "cat_extra",
-        "extra_before_6am": "cat_extra",
+    category_names = {
+        "cat_makeup": "💄 Макияж",
+        "cat_styling": "💇 Укладки и причёски",
+        "cat_brows": "👁 Брови и ресницы",
+        "cat_shugaring": "🍯 Шугаринг",
+        "cat_kids": "👶 Детям",
+        "cat_packages": "🎁 Пакеты",
+        "cat_extra": "➕ Дополнительно",
     }
-    category = category_for_service.get(service_key, "cat_brows")
-    needs_time = category in NEEDS_TIME_CATEGORIES
+    cat_name = category_names.get(cat, "Услуга")
 
-    await state.update_data(
-        service_key=service_key,
-        service_name=service["name"],
-        service_price=service["price"],
-        needs_time=needs_time,
-    )
+    await state.update_data(category=cat, category_name=cat_name)
 
-    text = (
-        f"Отлично! Ты выбрала:\n\n"
-        f"<b>{service['name']}</b>\n"
-        f"💰 {service['price']}\n\n"
+    await callback.message.edit_text(
+        f"Отлично! Категория: <b>{cat_name}</b>\n\n"
         f"Напиши, пожалуйста, <b>как тебя зовут</b>:"
     )
-    await callback.message.edit_text(text)
     await state.set_state(BookingFlow.entering_name)
     await callback.answer()
 
@@ -834,19 +802,20 @@ async def process_phone(message: Message, state: FSMContext, phone: str):
 
     # Уведомляем админа — громкий сигнал + кнопки
     if ADMIN_CHAT_ID:
-        # Делаем номер телефона кликабельным (tel: для звонка)
         clean_phone = "".join(c for c in phone if c.isdigit() or c == "+")
         tel_link = f"tel:{clean_phone}"
 
+        cat_name = data.get("category_name", "—")
+
         admin_text = (
             f"❗️❗️❗️ <b>НОВАЯ ЗАЯВКА НА ЗАПИСЬ</b> ❗️❗️❗️\n\n"
-            f"🎀 Услуга: <b>{data['service_name']}</b>\n"
-            f"💰 Стоимость: <b>{data['service_price']}</b>\n"
+            f"🎀 Категория: <b>{cat_name}</b>\n"
             f"👤 Имя: <b>{data['name']}</b>\n"
             f"📞 Телефон: <b>{phone}</b>\n"
             f"💬 Telegram: @{message.from_user.username or '—'}\n"
             f"🆔 ID: <code>{message.from_user.id}</code>\n\n"
-            f"⏰ Заявка пришла: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            f"⏰ Заявка пришла: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+            f"<i>Уточни услугу и время при звонке</i>"
         )
         admin_kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📞 Перезвонить", url=tel_link)],
@@ -860,7 +829,7 @@ async def process_phone(message: Message, state: FSMContext, phone: str):
                 ADMIN_CHAT_ID,
                 admin_text,
                 reply_markup=admin_kb,
-                disable_notification=False,  # звук/вибрация
+                disable_notification=False,
             )
         except Exception as e:
             logger.error(f"Не удалось уведомить админа: {e}")
