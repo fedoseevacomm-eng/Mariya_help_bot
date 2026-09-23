@@ -896,6 +896,17 @@ async def book_confirm_yes(callback: CallbackQuery, state: FSMContext):
         f"Если что-то нужно изменить — напиши Марии лично: {INSTAGRAM}",
         reply_markup=main_menu_kb(),
     )
+    # Сразу отправляем кнопку для перехода в личку Марии
+    try:
+        maria_url = f"https://t.me/{(INSTAGRAM[1:] if INSTAGRAM.startswith('@') else INSTAGRAM)}"
+    except Exception:
+        maria_url = "https://t.me/marrifedoseeva"
+    await callback.message.answer(
+        "💬 <b>Связаться с Марией напрямую:</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✉️ Написать Марии в Telegram", url=maria_url)]
+        ])
+    )
     await callback.answer("Готово!")
 
 
