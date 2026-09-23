@@ -2025,6 +2025,28 @@ async def start_health_server():
     await site.start()
     logger.info(f"🌐 Health server started on port {port}")
 
+    # Self-ping каждые 5 минут — чтобы Render free instance не уснул
+    async def self_ping():
+        try:
+            external_url = os.getenv("RENDER_EXTERNAL_URL")
+            if not external_url:
+                logger.warning("RENDER_EXTERNAL_URL не задан — self-ping отключён")
+                return
+            ping_url = f"{external_url}/healthz"
+            logger.info(f"⏰ Self-ping запущен: {ping_url} каждые 5 минут")
+            async with aiohttp.ClientSession() as session:
+                while True:
+                    await asyncio.sleep(300)  # 5 минут
+                    try:
+                        async with session.get(ping_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                            logger.info(f"✓ Self-ping {ping_url} → {resp.status}")
+                    except Exception as e:
+                        logger.warning(f"Self-ping failed: {e}")
+        except asyncio.CancelledError:
+            return
+
+    asyncio.create_task(self_ping())
+
 
 async def main():
     await on_startup()
