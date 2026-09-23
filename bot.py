@@ -672,20 +672,58 @@ async def book_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# Категории услуг, для которых нужно указывать время (макияж, укладки, пакеты)
+# Для бровей / шугаринга / детям — только дата.
+NEEDS_TIME_CATEGORIES = {"cat_makeup", "cat_styling", "cat_packages"}
+
+
 @router.callback_query(F.data.startswith("book_service_"), StateFilter(BookingFlow.choosing_service))
 async def book_choose_service(callback: CallbackQuery, state: FSMContext):
     """Сохранение выбранной услуги, запрос даты"""
     service_key = callback.data.replace("book_service_", "")
     service = SERVICES.get(service_key)
-    
+
     if not service:
         await callback.message.edit_text("Что-то пошло не так. Попробуй ещё раз: /start")
         await state.clear()
         await callback.answer()
         return
-    
-    await state.update_data(service_key=service_key, service_name=service["name"], service_price=service["price"])
-    
+
+    # Определяем категорию по service_key
+    category_for_service = {
+        # Макияж
+        "makeup_day": "cat_makeup", "makeup_evening": "cat_makeup",
+        "makeup_graphic": "cat_makeup", "makeup_bride": "cat_makeup",
+        "makeup_bride_trial": "cat_makeup",
+        # Укладки
+        "styling_short": "cat_styling", "styling_mid": "cat_styling",
+        "styling_long": "cat_styling", "styling_collected": "cat_styling",
+        "styling_bride": "cat_styling",
+        # Брови
+        "lamination_brows": "cat_brows", "lamination_lashes": "cat_brows",
+        "brows_correction": "cat_brows", "brows_tint": "cat_brows",
+        # Шугаринг
+        "shugaring_face": "cat_shugaring", "shugaring_armpits": "cat_shugaring",
+        "shugaring_bikini": "cat_shugaring", "shugaring_shins": "cat_shugaring",
+        "shugaring_thighs": "cat_shugaring", "shugaring_legs_full": "cat_shugaring",
+        # Детям
+        "kids_styling": "cat_kids",
+        # Пакеты
+        "full_bridal": "cat_packages", "express": "cat_packages",
+        # Доп
+        "extra_home_visit": "cat_extra", "extra_early_visit": "cat_extra",
+        "extra_before_6am": "cat_extra",
+    }
+    category = category_for_service.get(service_key, "cat_brows")
+    needs_time = category in NEEDS_TIME_CATEGORIES
+
+    await state.update_data(
+        service_key=service_key,
+        service_name=service["name"],
+        service_price=service["price"],
+        needs_time=needs_time,
+    )
+
     text = (
         f"Отлично! Ты выбрала:\n\n"
         f"<b>{service['name']}</b>\n"
@@ -699,20 +737,32 @@ async def book_choose_service(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("date_"), StateFilter(BookingFlow.choosing_date))
 async def book_choose_date(callback: CallbackQuery, state: FSMContext):
-    """Сохранение даты, запрос времени"""
+    """Сохранение даты; запрос времени (если нужно) или имени"""
     date_str = callback.data.replace("date_", "")
     await state.update_data(date=date_str)
-    
+
     d = datetime.strptime(date_str, "%Y-%m-%d")
     days_names = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
     formatted = f"{days_names[d.weekday()]} {d.strftime('%d.%m.%Y')}"
-    
-    text = (
-        f"Дата: <b>{formatted}</b>\n\n"
-        f"Выбери удобное время:"
-    )
-    await callback.message.edit_text(text, reply_markup=time_kb())
-    await state.set_state(BookingFlow.choosing_time)
+
+    data = await state.get_data()
+    needs_time = data.get("needs_time", True)
+
+    if needs_time:
+        # Макияж / укладка / пакет — спрашиваем время
+        text = (
+            f"Дата: <b>{formatted}</b>\n\n"
+            f"Во сколько тебе нужно быть готовой? Выбери удобное время:"
+        )
+        await callback.message.edit_text(text, reply_markup=time_kb())
+        await state.set_state(BookingFlow.choosing_time)
+    else:
+        # Брови / шугаринг / детям — сразу к имени
+        await callback.message.edit_text(
+            f"Дата: <b>{formatted}</b>\n\n"
+            f"Отлично! Теперь напиши, пожалуйста, <b>как тебя зовут</b>:"
+        )
+        await state.set_state(BookingFlow.entering_name)
     await callback.answer()
 
 
@@ -781,16 +831,19 @@ async def process_phone(message: Message, state: FSMContext, phone: str):
     """Обработка телефона и запрос подтверждения"""
     await state.update_data(phone=phone)
     data = await state.get_data()
-    
+
     d = datetime.strptime(data["date"], "%Y-%m-%d")
     days_names = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
     formatted_date = f"{days_names[d.weekday()]} {d.strftime('%d.%m.%Y')}"
-    
+
+    needs_time = data.get("needs_time", True)
+    time_line = f"Время: <b>{data.get('time', '—')}</b>\n" if needs_time else ""
+
     text = (
         "📋 <b>Проверь запись</b>\n\n"
         f"Услуга: <b>{data['service_name']}</b>\n"
         f"Дата: <b>{formatted_date}</b>\n"
-        f"Время: <b>{data['time']}</b>\n"
+        f"{time_line}"
         f"Стоимость: <b>{data['service_price']}</b>\n"
         f"Имя: {data['name']}\n"
         f"Телефон: {phone}\n\n"
@@ -805,18 +858,21 @@ async def book_confirm_yes(callback: CallbackQuery, state: FSMContext):
     """Подтверждение записи, отправка админу"""
     data = await state.get_data()
     await state.clear()
-    
+
     # Уведомляем админа
     if ADMIN_CHAT_ID:
         d = datetime.strptime(data["date"], "%Y-%m-%d")
         days_names = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
         formatted_date = f"{days_names[d.weekday()]} {d.strftime('%d.%m.%Y')}"
-        
+
+        needs_time = data.get("needs_time", True)
+        time_line = f"Время: <b>{data.get('time', '—')}</b>\n" if needs_time else ""
+
         admin_text = (
             f"🔔 <b>Новая запись через бота</b>\n\n"
             f"Услуга: <b>{data['service_name']}</b>\n"
             f"Дата: <b>{formatted_date}</b>\n"
-            f"Время: <b>{data['time']}</b>\n"
+            f"{time_line}"
             f"Стоимость: <b>{data['service_price']}</b>\n"
             f"Имя: {data['name']}\n"
             f"Телефон: {data['phone']}\n"
@@ -827,21 +883,16 @@ async def book_confirm_yes(callback: CallbackQuery, state: FSMContext):
             await bot.send_message(ADMIN_CHAT_ID, admin_text)
         except Exception as e:
             logger.error(f"Не удалось уведомить админа: {e}")
-    
+
+    needs_time = data.get("needs_time", True)
+    time_line = f"🕐 {data.get('time', '')}\n" if needs_time and data.get("time") else ""
+
     await callback.message.edit_text(
         f"✅ <b>Запись подтверждена!</b>\n\n"
         f"<b>{data['service_name']}</b>\n"
         f"📅 {data['date']}\n"
-        f"🕐 {data['time']}\n\n"
-        f"Мария свяжется с тобой для подтверждения.\n"
-        f"Если что-то нужно изменить — напиши Марии лично: {INSTAGRAM}"
-    )
-    await callback.message.edit_text(
-        f"✅ <b>Запись подтверждена!</b>\n\n"
-        f"<b>{data['service_name']}</b>\n"
-        f"📅 {data['date']}\n"
-        f"🕐 {data['time']}\n\n"
-        f"Мария свяжется с тобой для подтверждения.\n"
+        f"{time_line}"
+        f"\nМария свяжется с тобой для подтверждения.\n"
         f"Если что-то нужно изменить — напиши Марии лично: {INSTAGRAM}",
         reply_markup=main_menu_kb(),
     )
