@@ -332,11 +332,12 @@ async def master_course_followup(user_id: int, chat_id: int, original_msg_id: in
             logger.warning(f"Не удалось отправить followup master: {e}")
 
 
-@router.callback_query(F.data.in_({"online_lessons", "course_self", "course_master", "back_to_main", "education", "services", "register_uds", "loyalty", "address", "contacts", "review", "help", "book", "cancel"}))
+@router.callback_query(F.data.in_({"back_to_main", "cancel", "help"}))
 async def clear_followup_state(callback: CallbackQuery):
-    """Сбрасываем waiter при любом взаимодействии — чтобы не отправлять followup, если человек уже что-то нажал"""
+    """Сбрасываем waiter при возврате/отмене — чтобы не отправлять followup"""
     state_self_waiter.pop(callback.from_user.id, None)
     state_master_waiter.pop(callback.from_user.id, None)
+    await callback.answer()
 
 # =========================
 # FSM-состояния
