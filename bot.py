@@ -728,10 +728,10 @@ async def book_choose_service(callback: CallbackQuery, state: FSMContext):
         f"Отлично! Ты выбрала:\n\n"
         f"<b>{service['name']}</b>\n"
         f"💰 {service['price']}\n\n"
-        f"Когда тебе удобно? Выбери дату на ближайшие 7 дней:"
+        f"Напиши, пожалуйста, <b>как тебя зовут</b>:"
     )
-    await callback.message.edit_text(text, reply_markup=date_kb())
-    await state.set_state(BookingFlow.choosing_date)
+    await callback.message.edit_text(text)
+    await state.set_state(BookingFlow.entering_name)
     await callback.answer()
 
 
@@ -791,11 +791,10 @@ async def book_get_name(message: Message, state: FSMContext):
         return
     
     await state.update_data(name=name)
-    
+
     await message.answer(
         f"Приятно познакомиться, <b>{name}</b>! 💛\n\n"
-        f"Напиши свой <b>номер телефона</b> (Маша перезвонит для подтверждения):\n"
-        f"Например: +7 999 123-45-67",
+        f"Напиши свой <b>номер телефона</b>, чтобы Мария могла связаться:",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="📱 Поделиться номером", request_contact=True)]
@@ -828,29 +827,42 @@ async def book_get_phone_text(message: Message, state: FSMContext):
 
 
 async def process_phone(message: Message, state: FSMContext, phone: str):
-    """Обработка телефона и запрос подтверждения"""
+    """Обработка телефона → сразу уведомление и финальное сообщение"""
     await state.update_data(phone=phone)
     data = await state.get_data()
+    await state.clear()
 
-    d = datetime.strptime(data["date"], "%Y-%m-%d")
-    days_names = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
-    formatted_date = f"{days_names[d.weekday()]} {d.strftime('%d.%m.%Y')}"
+    # Уведомляем админа
+    if ADMIN_CHAT_ID:
+        admin_text = (
+            f"🔔 <b>Новая заявка на запись</b>\n\n"
+            f"Услуга: <b>{data['service_name']}</b>\n"
+            f"Стоимость: <b>{data['service_price']}</b>\n"
+            f"Имя: {data['name']}\n"
+            f"Телефон: <phone>{phone}</phone>\n"
+            f"Клиент: @{message.from_user.username or '—'}\n"
+            f"ID: {message.from_user.id}"
+        )
+        try:
+            await bot.send_message(ADMIN_CHAT_ID, admin_text)
+        except Exception as e:
+            logger.error(f"Не удалось уведомить админа: {e}")
 
-    needs_time = data.get("needs_time", True)
-    time_line = f"Время: <b>{data.get('time', '—')}</b>\n" if needs_time else ""
+    try:
+        maria_url = f"https://t.me/{(INSTAGRAM[1:] if INSTAGRAM.startswith('@') else INSTAGRAM)}"
+    except Exception:
+        maria_url = "https://t.me/marrifedoseeva"
 
-    text = (
-        "📋 <b>Проверь запись</b>\n\n"
-        f"Услуга: <b>{data['service_name']}</b>\n"
-        f"Дата: <b>{formatted_date}</b>\n"
-        f"{time_line}"
-        f"Стоимость: <b>{data['service_price']}</b>\n"
-        f"Имя: {data['name']}\n"
-        f"Телефон: {phone}\n\n"
-        "Всё верно?"
+    await message.answer(
+        f"Спасибо, <b>{data['name']}</b>! 💛\n\n"
+        f"Проверяем свободные места.\n"
+        f"Мария свяжется с вами для подтверждения записи.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✉️ Написать Марии в Telegram", url=maria_url)]
+        ]),
     )
-    await message.answer(text, reply_markup=confirm_kb())
-    await state.set_state(BookingFlow.confirming)
+    # Убираем reply-клавиатуру (Поделиться номером)
+    await message.answer("Если хочешь — можешь вернуться в меню:", reply_markup=main_menu_kb())
 
 
 @router.callback_query(F.data == "confirm_yes", StateFilter(BookingFlow.confirming))
