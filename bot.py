@@ -50,6 +50,25 @@ from aiogram.enums import ParseMode
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")  # от @BotFather
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))  # ID Маши в Telegram
+NOTIFY_TOPIC = os.getenv("NOTIFY_TOPIC", "mariya-booking-default")  # ntfy.sh топик для push
+
+
+async def notify_push(title: str, body: str, priority: str = "high"):
+    """Push в телефон через ntfy.sh — работает даже если Telegram закрыт"""
+    try:
+        async with aiohttp.ClientSession() as s:
+            await s.post(
+                f"https://ntfy.sh/{NOTIFY_TOPIC}",
+                data=body.encode("utf-8"),
+                headers={
+                    "Title": title.encode("utf-8"),
+                    "Priority": priority,
+                    "Tags": "bell,scissors,envelope",
+                },
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+    except Exception as e:
+        logger.error(f"ntfy.sh push error: {e}")
 STUDIO_ADDRESS = "г. Сызрань, ул. Константина Федина, 33, 1 этаж, кабинет 111"
 STUDIO_PHONE = "+7 (927) 896-46-64"
 INSTAGRAM = "@marri_fedoseeva"
@@ -817,6 +836,13 @@ async def process_phone(message: Message, state: FSMContext, phone: str):
             )
         except Exception as e:
             logger.error(f"Не удалось уведомить админа: {e}")
+
+    # Дубль push-уведомлением на телефон через ntfy.sh
+    await notify_push(
+        title=f"🔔 Заявка: {data['name']}",
+        body=f"{phone}\n{cat_name}\nУточни услугу и время",
+        priority="high",
+    )
 
     try:
         maria_url = f"https://t.me/{(INSTAGRAM[1:] if INSTAGRAM.startswith('@') else INSTAGRAM)}"
