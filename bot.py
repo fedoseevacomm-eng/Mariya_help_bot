@@ -832,19 +832,36 @@ async def process_phone(message: Message, state: FSMContext, phone: str):
     data = await state.get_data()
     await state.clear()
 
-    # Уведомляем админа
+    # Уведомляем админа — громкий сигнал + кнопки
     if ADMIN_CHAT_ID:
+        # Делаем номер телефона кликабельным (tel: для звонка)
+        clean_phone = "".join(c for c in phone if c.isdigit() or c == "+")
+        tel_link = f"tel:{clean_phone}"
+
         admin_text = (
-            f"🔔 <b>Новая заявка на запись</b>\n\n"
-            f"Услуга: <b>{data['service_name']}</b>\n"
-            f"Стоимость: <b>{data['service_price']}</b>\n"
-            f"Имя: {data['name']}\n"
-            f"Телефон: <phone>{phone}</phone>\n"
-            f"Клиент: @{message.from_user.username or '—'}\n"
-            f"ID: {message.from_user.id}"
+            f"❗️❗️❗️ <b>НОВАЯ ЗАЯВКА НА ЗАПИСЬ</b> ❗️❗️❗️\n\n"
+            f"🎀 Услуга: <b>{data['service_name']}</b>\n"
+            f"💰 Стоимость: <b>{data['service_price']}</b>\n"
+            f"👤 Имя: <b>{data['name']}</b>\n"
+            f"📞 Телефон: <b>{phone}</b>\n"
+            f"💬 Telegram: @{message.from_user.username or '—'}\n"
+            f"🆔 ID: <code>{message.from_user.id}</code>\n\n"
+            f"⏰ Заявка пришла: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
         )
+        admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📞 Перезвонить", url=tel_link)],
+            [
+                InlineKeyboardButton(text="✅ Принять", callback_data=f"admin_accept_{message.from_user.id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_reject_{message.from_user.id}"),
+            ],
+        ])
         try:
-            await bot.send_message(ADMIN_CHAT_ID, admin_text)
+            await bot.send_message(
+                ADMIN_CHAT_ID,
+                admin_text,
+                reply_markup=admin_kb,
+                disable_notification=False,  # звук/вибрация
+            )
         except Exception as e:
             logger.error(f"Не удалось уведомить админа: {e}")
 
