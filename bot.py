@@ -661,6 +661,7 @@ async def price_photo(callback: CallbackQuery):
 @router.callback_query(F.data == "book")
 async def book_start(callback: CallbackQuery, state: FSMContext):
     """Начать запись — выбор услуги"""
+    logger.info(f"🔥 CALLBACK book от {callback.from_user.id}: {callback.data}")
     text = (
         "🎀 <b>Запись на услугу</b>\n\n"
         "Выбери категорию услуг, на которую хочешь записаться:"
