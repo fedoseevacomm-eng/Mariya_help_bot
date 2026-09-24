@@ -780,16 +780,27 @@ async def book_get_name(message: Message, state: FSMContext):
 @router.message(StateFilter(BookingFlow.entering_phone), F.contact)
 async def book_get_phone_contact(message: Message, state: FSMContext):
     """Получение телефона через контакт"""
-    if message.contact:
+    logger.info(f"📞 book_get_phone_contact: contact={message.contact}")
+    if message.contact and message.contact.phone_number:
         phone = message.contact.phone_number
+        logger.info(f"📞 contact.phone_number={phone}, вызываю process_phone")
         await process_phone(message, state, phone)
+    else:
+        logger.warning(f"📞 contact пустой или без phone_number, fallback на text")
 
 
 @router.message(StateFilter(BookingFlow.entering_phone))
 async def book_get_phone_text(message: Message, state: FSMContext):
     """Получение телефона вручную"""
-    phone = message.text.strip()
-    # Простая валидация
+    logger.info(f"📞 book_get_phone_text: text={message.text!r}, contact={message.contact}")
+    if message.contact:
+        # Дубликат на случай если contact-фильтр не сработал
+        phone = message.contact.phone_number or ""
+        if phone:
+            logger.info(f"📞 text-хэндлер поймал контакт, phone={phone}")
+            await process_phone(message, state, phone)
+            return
+    phone = (message.text or "").strip()
     digits = "".join(c for c in phone if c.isdigit())
     if len(digits) < 10:
         await message.answer("Похоже, в номере ошибка. Попробуй ещё раз:")
@@ -799,9 +810,11 @@ async def book_get_phone_text(message: Message, state: FSMContext):
 
 async def process_phone(message: Message, state: FSMContext, phone: str):
     """Обработка телефона → сразу уведомление и финальное сообщение"""
+    logger.info(f"🔔 process_phone START: phone={phone}, user_id={message.from_user.id}")
     await state.update_data(phone=phone)
     data = await state.get_data()
     await state.clear()
+    logger.info(f"🔔 process_phone: state cleared, data={data}")
 
     # Уведомляем админа — громкий сигнал + кнопки
     if ADMIN_CHAT_ID:
@@ -828,21 +841,24 @@ async def process_phone(message: Message, state: FSMContext, phone: str):
             ],
         ])
         try:
-            await bot.send_message(
+            sent = await bot.send_message(
                 ADMIN_CHAT_ID,
                 admin_text,
                 reply_markup=admin_kb,
                 disable_notification=False,
             )
+            logger.info(f"✅ admin notify sent: msg_id={sent.message_id}, chat={ADMIN_CHAT_ID}")
         except Exception as e:
-            logger.error(f"Не удалось уведомить админа: {e}")
+            logger.error(f"❌ admin notify failed: {type(e).__name__}: {e}")
 
     # Дубль push-уведомлением на телефон через ntfy.sh
+    logger.info(f"📲 notify_push: topic={NOTIFY_TOPIC}")
     await notify_push(
         title=f"🔔 Заявка: {data['name']}",
         body=f"{phone}\n{cat_name}\nУточни услугу и время",
         priority="high",
     )
+    logger.info(f"📲 notify_push done")
 
     try:
         maria_url = f"https://t.me/{(INSTAGRAM[1:] if INSTAGRAM.startswith('@') else INSTAGRAM)}"
