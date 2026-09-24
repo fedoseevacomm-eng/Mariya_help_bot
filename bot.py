@@ -61,14 +61,14 @@ async def notify_push(title: str, body: str, priority: str = "high"):
                 f"https://ntfy.sh/{NOTIFY_TOPIC}",
                 data=body.encode("utf-8"),
                 headers={
-                    "Title": title.encode("utf-8"),
-                    "Priority": priority,
-                    "Tags": "bell,scissors,envelope",
+                    "Title": str(title),
+                    "Priority": str(priority),
+                    "Tags": "bell,scissors",
                 },
                 timeout=aiohttp.ClientTimeout(total=10),
             )
     except Exception as e:
-        logger.error(f"ntfy.sh push error: {e}")
+        logger.error(f"ntfy.sh push error: {type(e).__name__}: {e}")
 STUDIO_ADDRESS = "г. Сызрань, ул. Константина Федина, 33, 1 этаж, кабинет 111"
 STUDIO_PHONE = "+7 (927) 896-46-64"
 INSTAGRAM = "@marri_fedoseeva"
@@ -819,7 +819,8 @@ async def process_phone(message: Message, state: FSMContext, phone: str):
     # Уведомляем админа — громкий сигнал + кнопки
     if ADMIN_CHAT_ID:
         clean_phone = "".join(c for c in phone if c.isdigit() or c == "+")
-        tel_link = f"tel:{clean_phone}"
+        # tel: не работает в Telegram inline-кнопках — используем wa.me
+        wa_link = f"https://wa.me/{clean_phone.lstrip('+')}"
 
         cat_name = data.get("category_name", "—")
 
@@ -834,7 +835,7 @@ async def process_phone(message: Message, state: FSMContext, phone: str):
             f"<i>Уточни услугу и время при звонке</i>"
         )
         admin_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📞 Перезвонить", url=tel_link)],
+            [InlineKeyboardButton(text=f"📞 {phone}", url=wa_link)],
             [
                 InlineKeyboardButton(text="✅ Принять", callback_data=f"admin_accept_{message.from_user.id}"),
                 InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_reject_{message.from_user.id}"),
@@ -2140,6 +2141,9 @@ async def main():
     await on_startup()
     logger.info("🚀 Бот запускается...")
     if os.getenv("RENDER") == "true":
+        # Задержка, чтобы Render успел убить старый процесс и не было TelegramConflictError
+        logger.info("⏳ Ждём 30 секунд, чтобы старый polling остановился...")
+        await asyncio.sleep(30)
         await start_health_server()
     await dp.start_polling(bot)
 
