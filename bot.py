@@ -111,6 +111,11 @@ SERVICES = {
         "price": "2 800–3 500 ₽",
         "category": "Комплексные пакеты",
     },
+    "full_look": {
+        "name": "Полный образ (макияж + укладка)",
+        "price": "от 5 500 ₽",
+        "category": "Комплексные пакеты",
+    },
     "styling_short": {
         "name": "Укладка на короткие волосы",
         "price": "2 000 ₽",
@@ -633,7 +638,7 @@ async def book_choose_category(callback: CallbackQuery, state: FSMContext):
         "cat_brows": ["lamination_brows", "lamination_lashes", "brows_correction", "brows_tint"],
         "cat_shugaring": ["shugaring_face", "shugaring_armpits", "shugaring_bikini", "shugaring_shins", "shugaring_thighs", "shugaring_legs_full"],
         "cat_kids": ["kids_styling"],
-        "cat_packages": ["full_bridal", "express"],
+        "cat_packages": ["full_bridal", "express", "full_look"],
         "cat_extra": ["extra_home_visit", "extra_early_visit", "extra_before_6am"],
     }
     keys = cat_services.get(cat, [])
